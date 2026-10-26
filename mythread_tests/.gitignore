@@ -1,0 +1,7 @@
+# Build outputs
+/mythread_tests
+/build/
+
+# Student implementations are copied here locally for checking only
+/impl/custom/*
+!/impl/custom/.gitkeep
