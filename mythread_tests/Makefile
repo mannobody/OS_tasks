@@ -117,14 +117,14 @@ check-custom:
 sanitize:
 	$(MAKE) clean
 	$(MAKE) mythread_tests \
-	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=thread -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE" \
+	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=thread" \
 	    LDFLAGS="-fsanitize=thread -lpthread"
 	./mythread_tests
 
 sanitize-mem:
 	$(MAKE) clean
 	$(MAKE) mythread_tests \
-	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE" \
+	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined" \
 	    LDFLAGS="-fsanitize=address,undefined -lpthread"
 	./mythread_tests
 
