@@ -131,9 +131,6 @@ sanitize-mem:
 # Valgrind memcheck over the suite the normal way: slow but thorough.
 # The per-test runner timeout still applies — that is [S12] in action.
 valgrind: mythread_tests
-	valgrind --error-exitcode=99 --exit-first-usage \
-	    --suppressions=/usr/share/doc/valgrind/default.supp \
-	    ./mythread_tests || \
 	valgrind --error-exitcode=99 ./mythread_tests
 
 clean:
