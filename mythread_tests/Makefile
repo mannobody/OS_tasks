@@ -87,7 +87,7 @@ ifneq ($(strip $(USING_DEFAULT_TYPES)),)
 	      "framework fallback (include/mythread_types_default.h)." >&2
 	@echo "      Provide your own types header if your handle is not an unsigned long." >&2
 endif
-	$(CC) $(CFLAGS) $^ $(IMPL_LIB) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(filter %.c,$^) $(IMPL_LIB) -o $@ $(LDFLAGS)
 
 build/mythread_types.h: FORCE
 	@mkdir -p $(@D)
