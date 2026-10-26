@@ -45,24 +45,27 @@ else
   $(error Unknown IMPL=$(IMPL))
 endif
 
-CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+# Mandatory flags use 'override': a CFLAGS=... given on the command line
+# (e.g. by the sanitize targets) then adds to them instead of silently
+# dropping the include paths and the contract header.
+override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 # 'include' comes first: the public API contract must always beat any
 # implementation-internal header of the same name.
-CFLAGS += -Iinclude -I$(IMPL_DIR) -Iframework -Itests
+override CFLAGS += -Iinclude -I$(IMPL_DIR) -Iframework -Itests
 
 # Signature check: force the public contract into every translation unit
 # *before* any implementation header. C links by name only, so a function
 # defined with a wrong signature would otherwise link silently and be UB
 # at runtime; with the contract declaration visible first, a mismatching
 # definition fails to compile with "conflicting types for 'mythread_...'".
-CFLAGS += -include include/mythread.h
+override CFLAGS += -include include/mythread.h
 
 ifneq ($(strip $(IMPL_INC)),)
-  CFLAGS += $(addprefix -I,$(filter $(IMPL_DIR)/%,$(IMPL_INC)))
+  override CFLAGS += $(addprefix -I,$(filter $(IMPL_DIR)/%,$(IMPL_INC)))
 endif
 
 ifeq ($(strip $(NEEDS_SHIM)),1)
-  CFLAGS += -Ibuild
+  override CFLAGS += -Ibuild
   # Regenerated every build, so renaming your headers needs no make clean.
   mythread_tests: build/mythread_types.h
 endif
