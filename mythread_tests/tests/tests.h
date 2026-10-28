@@ -84,5 +84,6 @@ int test_error_join_self(void);
 /* kernel-thread semantics */
 int test_kernel_errno_per_thread(void);
 int test_kernel_tls_per_thread(void);
+int test_kernel_ids(void);
 
 #endif

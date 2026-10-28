@@ -2,6 +2,8 @@
 #include "assert.h"
 #include <errno.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 /* Kernel-thread semantics (K1..): what a clone()-based 1.6 library must
  * get right beyond create/join/detach bookkeeping.
@@ -157,5 +159,71 @@ test_kernel_tls_per_thread(void)
 		ASSERT_NULL(ret);   /* fresh TLS copy, value kept */
 	}
 	ASSERT_EQ(k2_tls, -1);   /* nobody wrote into main's copy */
+	return TEST_SUCCESS;
+}
+
+/*
+ * [K3] Threads, not processes: CLONE_THREAD and CLONE_VM. While all
+ * workers are alive at once, each one must report main's pid (same
+ * thread group) and a tid of its own (distinct from each other and
+ * from main — tids are only reusable after a thread is gone, hence the
+ * gate). Each also writes a global that main must then see: with a
+ * fork()-like copy of the address space the write stays invisible.
+ */
+static int k3_seen[K_N];
+
+struct k3_job {
+	int idx;
+	pid_t pid, tid;
+	struct k_gate *g;
+};
+
+static void *
+worker_k3_ids(void *arg)
+{
+	struct k3_job *j = (struct k3_job *)arg;
+
+	j->pid = getpid();
+	j->tid = (pid_t)syscall(SYS_gettid);
+	__atomic_store_n(&k3_seen[j->idx], 0x300 + j->idx, __ATOMIC_SEQ_CST);
+	k_arrive_and_wait(j->g);
+	return NULL;
+}
+
+int
+test_kernel_ids(void)
+{
+	static struct k3_job jobs[K_N];
+	static struct k_gate g;
+	static mythread_t t[K_N];
+
+	g.arrived = 0;
+	g.open = 0;
+	for (int i = 0; i < K_N; ++i) {
+		k3_seen[i] = 0;
+		jobs[i].idx = i;
+		jobs[i].pid = jobs[i].tid = 0;
+		jobs[i].g = &g;
+		ASSERT_SUCCESS(mythread_create(&t[i], NULL, worker_k3_ids,
+		                               &jobs[i]));
+	}
+	k_wait_all_arrived(&g, K_N);
+
+	pid_t pid = getpid();
+	pid_t tid = (pid_t)syscall(SYS_gettid);
+	for (int i = 0; i < K_N; ++i) {
+		/* the write made in the worker is visible here (CLONE_VM) */
+		ASSERT_EQ(__atomic_load_n(&k3_seen[i], __ATOMIC_SEQ_CST),
+		          0x300 + i);
+		ASSERT_EQ(jobs[i].pid, pid);   /* same process (CLONE_THREAD) */
+		ASSERT_TRUE(jobs[i].tid > 0);
+		ASSERT_TRUE(jobs[i].tid != tid);
+		for (int k = i + 1; k < K_N; ++k)
+			ASSERT_TRUE(jobs[i].tid != jobs[k].tid);
+	}
+
+	__atomic_store_n(&g.open, 1, __ATOMIC_SEQ_CST);
+	for (int i = 0; i < K_N; ++i)
+		ASSERT_SUCCESS(mythread_join(t[i], NULL));
 	return TEST_SUCCESS;
 }
