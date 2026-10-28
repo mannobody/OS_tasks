@@ -9,6 +9,18 @@
 
 #define DEFAULT_TIMEOUT_MS 5000
 
+/* GCC defines __SANITIZE_*__, clang reports through __has_feature. */
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define SANITIZED 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define SANITIZED 1
+#endif
+#endif
+#ifndef SANITIZED
+#define SANITIZED 0
+#endif
+
 /*
  * Stand-in for "return from main()". A plain return inside our test
  * harness would only unwind the test function, not the process, so we
@@ -25,6 +37,9 @@ static int
 run_one(const test_case_t *t)
 {
 	int timeout = t->timeout_ms ? t->timeout_ms : DEFAULT_TIMEOUT_MS;
+
+	if (SANITIZED && (t->flags & TEST_SKIP_SANITIZE))
+		return TEST_SKIP;
 
 	pid_t pid = fork();
 	if (pid < 0) {

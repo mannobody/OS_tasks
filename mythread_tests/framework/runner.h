@@ -13,6 +13,10 @@ typedef struct {
 /* The test ends the whole process itself (mythread_exit or exit from
  * main) instead of returning; only then is TEST_EXIT_MARKER a pass. */
 #define TEST_EXITS_PROCESS  (1 << 0)
+/* The test measures something a sanitizer runtime distorts (RSS, the
+ * task count of the process, process exit with its helper thread
+ * alive): reported as SKIP in ASan/TSan builds instead of being run. */
+#define TEST_SKIP_SANITIZE  (1 << 1)
 
 #define TEST_SUCCESS  0
 #define TEST_FAILURE  1

@@ -40,7 +40,8 @@ main(void)
 		{"exit_join_blocks",     test_exit_join_blocks,     timeout, 0},
 		{"exit_immediate",       test_exit_immediate,       timeout, 0},
 		{"exit_nested",          test_exit_nested,          timeout, 0},
-		{"exit_from_main",       test_exit_from_main,       timeout, TEST_EXITS_PROCESS},
+		{"exit_from_main",       test_exit_from_main,       timeout,
+		                         TEST_EXITS_PROCESS | TEST_SKIP_SANITIZE},
 
 		{"stress_many_threads",  test_stress_many_threads,  timeout, 0},
 		{"stress_churn",         test_stress_churn,         timeout, 0},
@@ -67,9 +68,9 @@ main(void)
 		{"race_nested_create_join", test_race_nested_create_join, timeout, 0},
 		{"race_cross_detach",    test_race_cross_detach,    timeout, 0},
 
-		{"resource_mem_join",    test_resource_mem_join,    timeout * 2, 0},
-		{"resource_mem_detach",  test_resource_mem_detach,  timeout * 2, 0},
-		{"resource_reclaimed",   test_resource_threads_reclaimed, timeout, 0},
+		{"resource_mem_join",    test_resource_mem_join,    timeout * 2, TEST_SKIP_SANITIZE},
+		{"resource_mem_detach",  test_resource_mem_detach,  timeout * 2, TEST_SKIP_SANITIZE},
+		{"resource_reclaimed",   test_resource_threads_reclaimed, timeout, TEST_SKIP_SANITIZE},
 		{"resource_fds",         test_resource_fds,         timeout, 0},
 
 		{"error_null_routine",   test_error_null_routine,   timeout, 0},
