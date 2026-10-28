@@ -75,6 +75,8 @@ main(void)
 		{"error_null_routine",   test_error_null_routine,   timeout},
 		{"error_join_invalid",   test_error_join_invalid,   timeout},
 		{"error_join_self",      test_error_join_self,      timeout},
+
+		{"kernel_errno",         test_kernel_errno_per_thread, timeout},
 	};
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));
