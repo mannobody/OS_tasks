@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -178,6 +179,15 @@ run_one(const test_case_t *t, double scale)
 	return TEST_FAILURE;
 }
 
+static long
+now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 static int
 selected(const char *name, const char *const *patterns, int npatterns)
 {
@@ -220,6 +230,7 @@ run_selected(const test_case_t *tests, int n,
 		printf("RUN %s ... ", t->name);
 		fflush(stdout);
 
+		long start = now_ms();
 		int rc = TEST_SUCCESS;
 		for (int rep = 0; rep < repeat && rc == TEST_SUCCESS; ++rep) {
 			int one = run_one(t, scale);
@@ -235,17 +246,20 @@ run_selected(const test_case_t *tests, int n,
 			}
 		}
 
+		/* all repetitions together: the wall time the test costs */
+		long elapsed = now_ms() - start;
+
 		if (rc == TEST_SUCCESS) {
-			printf(COLOR_GREEN "OK" COLOR_RESET "\n");
+			printf(COLOR_GREEN "OK" COLOR_RESET " (%ld ms)\n", elapsed);
 			passed++;
 		} else if (rc == TEST_SKIP) {
-			printf(COLOR_YELLOW "SKIP" COLOR_RESET "\n");
+			printf(COLOR_YELLOW "SKIP" COLOR_RESET " (%ld ms)\n", elapsed);
 			skipped++;
 		} else if (rc == TEST_TIMEOUT) {
-			printf(COLOR_RED "TIMEOUT" COLOR_RESET "\n");
+			printf(COLOR_RED "TIMEOUT" COLOR_RESET " (%ld ms)\n", elapsed);
 			failed++;
 		} else {
-			printf(COLOR_RED "FAIL" COLOR_RESET "\n");
+			printf(COLOR_RED "FAIL" COLOR_RESET " (%ld ms)\n", elapsed);
 			failed++;
 		}
 	}
