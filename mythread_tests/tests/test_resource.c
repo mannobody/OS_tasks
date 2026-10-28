@@ -119,6 +119,8 @@ test_resource_mem_detach(void)
 #define ROUNDS 2000
 	long before = rss_pages();
 	ASSERT_TRUE(before > 0);
+	int base = task_count();
+	ASSERT_TRUE(base > 0);
 
 	for (int i = 0; i < ROUNDS; ++i) {
 		mythread_t t;
@@ -126,9 +128,11 @@ test_resource_mem_detach(void)
 		ASSERT_SUCCESS(mythread_detach(t));
 	}
 
-	/* detached threads die whenever; give them a moment to exit */
-	for (volatile int i = 0; i < 1000000; ++i)
-		;
+	/* detached threads die whenever: wait (bounded) until the kernel
+	 * has reaped them all instead of guessing with a busy loop */
+	for (int ms = 0; ms < 3000 && task_count() > base; ms += 5)
+		usleep(5 * 1000);
+	ASSERT_EQ(task_count(), base);
 
 	long after = rss_pages();
 	ASSERT_TRUE(after > 0);
