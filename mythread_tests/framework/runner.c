@@ -48,8 +48,10 @@ run_one(const test_case_t *t)
 				int code = WEXITSTATUS(status);
 				/* A test that terminated the whole process via
 				 * mythread_exit reports through exit code 42. */
-				return code == TEST_EXIT_MARKER
-				       ? TEST_SUCCESS : code;
+				if (code == TEST_EXIT_MARKER &&
+				    (t->flags & TEST_EXITS_PROCESS))
+					return TEST_SUCCESS;
+				return code;
 			}
 			/* died from signal */
 			fprintf(stderr, "\n  child killed by signal %d "
