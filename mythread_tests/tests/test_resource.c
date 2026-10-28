@@ -65,6 +65,20 @@ task_count(void)
 	return n > 2 ? n - 2 : 0;
 }
 
+/* The kernel wakes a joiner (CLONE_CHILD_CLEARTID) slightly before the
+ * exited task disappears from /proc/self/task, so give the count a
+ * bounded moment to settle. Returns the last count seen. */
+static int
+wait_task_count(int expected)
+{
+	int n = task_count();
+	for (int ms = 0; ms < 3000 && n > expected; ms += 5) {
+		usleep(5 * 1000);
+		n = task_count();
+	}
+	return n;
+}
+
 static int
 fd_count(void)
 {
@@ -130,9 +144,7 @@ test_resource_mem_detach(void)
 
 	/* detached threads die whenever: wait (bounded) until the kernel
 	 * has reaped them all instead of guessing with a busy loop */
-	for (int ms = 0; ms < 3000 && task_count() > base; ms += 5)
-		usleep(5 * 1000);
-	ASSERT_EQ(task_count(), base);
+	ASSERT_EQ(wait_task_count(base), base);
 
 	long after = rss_pages();
 	ASSERT_TRUE(after > 0);
@@ -163,7 +175,7 @@ test_resource_threads_reclaimed(void)
 	for (int i = 0; i < N; ++i)
 		ASSERT_SUCCESS(mythread_join(t[i], NULL));
 
-	int after = task_count();
+	int after = wait_task_count(base);
 	ASSERT_TRUE(after > 0);
 	ASSERT_EQ(after, base);
 #undef N
