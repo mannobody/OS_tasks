@@ -64,7 +64,7 @@ mythread_tests/
 │ ├── test_kernel.c 	# kernel-thread semantics (clone flags, TLS, stack)
 │ └── test_stress.c
 ├── framework/
-│ ├── runner.c 			# fork + timeout per test
+│ ├── runner.c 			# fork + timeout per test, name filter, flags
 │ ├── runner.h
 │ ├── assert.h 			# Assertion macros
 │ └── colors.h 			# ANSI colour helpers
@@ -173,5 +173,5 @@ The tests synchronize exclusively through C11 `__atomic_*` builtins — no volat
 ## Requirements
 
 - GCC or Clang (C11)
-- POSIX system (fork, waitpid, usleep)
+- Linux (the kernel tests check `clone()` semantics; the runner uses fork, process groups, `waitid` and `sigtimedwait`)
 - pthread for the reference implementation
