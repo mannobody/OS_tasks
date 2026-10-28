@@ -190,9 +190,11 @@ test_stress_detached_count(void)
 	count = 0;
 	static mythread_t t[S5_N];
 
-	for (int i = 0; i < S5_N; ++i)
+	for (int i = 0; i < S5_N; ++i) {
 		ASSERT_SUCCESS(mythread_create(&t[i], NULL,
 		                               worker_s5_detached, &count));
+		ASSERT_SUCCESS(mythread_detach(t[i]));
+	}
 
 	/* detached: nobody joins; wait bounded for the counter */
 	for (int ms = 0; ms < 3000; ms += 5) {
@@ -200,7 +202,7 @@ test_stress_detached_count(void)
 			break;
 		usleep(5 * 1000);
 	}
-	ASSERT_EQ(count, S5_N);
+	ASSERT_EQ(__atomic_load_n(&count, __ATOMIC_SEQ_CST), S5_N);
 #undef S5_N
 	return TEST_SUCCESS;
 }
@@ -228,9 +230,11 @@ test_stress_mixed(void)
 		                               &gj[i]));
 	}
 	/* detached half: fire-and-count */
-	for (int i = 0; i < S6_N; ++i)
+	for (int i = 0; i < S6_N; ++i) {
 		ASSERT_SUCCESS(mythread_create(&td[i], NULL,
 		                               worker_s5_detached, &dcount));
+		ASSERT_SUCCESS(mythread_detach(td[i]));
+	}
 
 	for (int i = 0; i < S6_N; ++i)
 		__atomic_store_n(&gj[i].open, 1, __ATOMIC_SEQ_CST);
@@ -242,7 +246,7 @@ test_stress_mixed(void)
 			break;
 		usleep(5 * 1000);
 	}
-	ASSERT_EQ(dcount, S6_N);
+	ASSERT_EQ(__atomic_load_n(&dcount, __ATOMIC_SEQ_CST), S6_N);
 
 	/* the process can still make threads afterwards */
 	mythread_t probe;
