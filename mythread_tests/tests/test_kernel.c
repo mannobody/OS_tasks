@@ -327,3 +327,65 @@ test_kernel_stack_align(void)
 	}
 	return TEST_SUCCESS;
 }
+
+/*
+ * [K6] A thread's stack is big enough for ordinary deep frames. Each of
+ * K_N workers puts a MYTHREAD_DEEP_STACK_KIB array on its stack (128 KiB
+ * by default: far below the 8 MiB pthread default, above toy 64 KiB
+ * stacks), fills it with its own byte, waits until all are full, then
+ * checks it. A stack that is too small either runs into a guard page
+ * (SIGSEGV) or, without one, into a neighbour's stack or the heap, and
+ * the overwritten bytes show. A library that documents a different
+ * stack size can be graded with
+ *   make CPPFLAGS=-DMYTHREAD_DEEP_STACK_KIB=<n>
+ */
+#ifndef MYTHREAD_DEEP_STACK_KIB
+#define MYTHREAD_DEEP_STACK_KIB 128
+#endif
+#define K6_DEPTH (MYTHREAD_DEEP_STACK_KIB * 1024)
+
+struct k6_job {
+	uint8_t fill;
+	struct k_gate *g;
+};
+
+static void *
+worker_k6_deep(void *arg)
+{
+	struct k6_job *j = (struct k6_job *)arg;
+	volatile uint8_t big[K6_DEPTH];   /* volatile: really on the stack */
+
+	for (int i = 0; i < K6_DEPTH; ++i)
+		big[i] = j->fill;
+	k_arrive_and_wait(j->g);
+	for (int i = 0; i < K6_DEPTH; ++i)
+		if (big[i] != j->fill)
+			return (void *)(intptr_t)-1;
+	return NULL;
+}
+
+int
+test_kernel_deep_stack(void)
+{
+	static struct k6_job jobs[K_N];
+	static struct k_gate g;
+	static mythread_t t[K_N];
+
+	g.arrived = 0;
+	g.open = 0;
+	for (int i = 0; i < K_N; ++i) {
+		jobs[i].fill = (uint8_t)(0xA0 + i);
+		jobs[i].g = &g;
+		ASSERT_SUCCESS(mythread_create(&t[i], NULL, worker_k6_deep,
+		                               &jobs[i]));
+	}
+	k_wait_all_arrived(&g, K_N);
+	__atomic_store_n(&g.open, 1, __ATOMIC_SEQ_CST);
+
+	for (int i = 0; i < K_N; ++i) {
+		void *ret = (void *)(intptr_t)-2;
+		ASSERT_SUCCESS(mythread_join(t[i], &ret));
+		ASSERT_NULL(ret);   /* the whole array survived */
+	}
+	return TEST_SUCCESS;
+}
