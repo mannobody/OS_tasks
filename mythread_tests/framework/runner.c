@@ -1,6 +1,7 @@
 #include "runner.h"
 #include "colors.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -33,10 +34,34 @@ test_return_main(int value)
 	exit(value);
 }
 
-static int
-run_one(const test_case_t *t)
+/*
+ * MYTHREAD_TIMEOUT_SCALE multiplies every test's timeout, for runs that
+ * are slow as a whole: valgrind, sanitizers, a loaded CI machine.
+ * Anything that is not a positive number is ignored with a warning.
+ */
+static double
+timeout_scale(void)
 {
-	int timeout = t->timeout_ms ? t->timeout_ms : DEFAULT_TIMEOUT_MS;
+	const char *env = getenv("MYTHREAD_TIMEOUT_SCALE");
+	if (!env)
+		return 1.0;
+
+	char *end;
+	double scale = strtod(env, &end);
+	if (end == env || *end != '\0' || !(scale > 0)) {
+		fprintf(stderr, "warning: MYTHREAD_TIMEOUT_SCALE=%s is not a "
+			"positive number, ignored\n", env);
+		return 1.0;
+	}
+	return scale;
+}
+
+static int
+run_one(const test_case_t *t, double scale)
+{
+	double ms = (t->timeout_ms ? t->timeout_ms : DEFAULT_TIMEOUT_MS) * scale;
+	/* at least one poll interval; capped so the wait loop cannot overflow */
+	int timeout = ms < 10 ? 10 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
 
 	if (SANITIZED && (t->flags & TEST_SKIP_SANITIZE))
 		return TEST_SKIP;
@@ -94,6 +119,7 @@ run_all(const test_case_t *tests, int n)
 	int repeat = rep_env ? atoi(rep_env) : 1;
 	if (repeat < 1)
 		repeat = 1;
+	double scale = timeout_scale();
 
 	for (int i = 0; i < n; ++i) {
 		const test_case_t *t = &tests[i];
@@ -103,7 +129,7 @@ run_all(const test_case_t *tests, int n)
 
 		int rc = TEST_SUCCESS;
 		for (int rep = 0; rep < repeat && rc == TEST_SUCCESS; ++rep) {
-			int one = run_one(t);
+			int one = run_one(t, scale);
 			if (one == TEST_SKIP) {
 				/* does not apply: no point repeating it */
 				rc = one;
