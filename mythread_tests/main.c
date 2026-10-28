@@ -77,6 +77,7 @@ main(void)
 		{"error_join_self",      test_error_join_self,      timeout},
 
 		{"kernel_errno",         test_kernel_errno_per_thread, timeout},
+		{"kernel_tls",           test_kernel_tls_per_thread,   timeout},
 	};
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));

@@ -93,3 +93,69 @@ test_kernel_errno_per_thread(void)
 	 * it even on success (C allows that, futex waits often do). */
 	return TEST_SUCCESS;
 }
+
+/*
+ * [K2] Thread-local variables are per thread. Same mechanism as K1, but
+ * on a _Thread_local of our own: every thread must start from the
+ * variable's initial value (its own copy of the TLS image, not a
+ * sibling's leftovers), keep what it wrote, and see it at an address
+ * of its own. Main checks the addresses are pairwise distinct.
+ */
+static _Thread_local int k2_tls = 7;
+
+struct k2_job {
+	int value;
+	uintptr_t addr;     /* &k2_tls as seen by the worker */
+	struct k_gate *g;
+};
+
+static void *
+worker_k2_tls(void *arg)
+{
+	struct k2_job *j = (struct k2_job *)arg;
+
+	int fresh = k2_tls == 7;
+	k2_tls = j->value;
+	__atomic_store_n(&j->addr, (uintptr_t)&k2_tls, __ATOMIC_SEQ_CST);
+	k_arrive_and_wait(j->g);
+
+	if (!fresh)
+		return (void *)(intptr_t)-1;   /* inherited a used TLS block */
+	return k2_tls == j->value ? NULL : (void *)(intptr_t)-2;
+}
+
+int
+test_kernel_tls_per_thread(void)
+{
+	static struct k2_job jobs[K_N];
+	static struct k_gate g;
+	static mythread_t t[K_N];
+
+	g.arrived = 0;
+	g.open = 0;
+	k2_tls = -1;   /* main's copy is used: a shared block starts dirty */
+	for (int i = 0; i < K_N; ++i) {
+		jobs[i].value = 2000 + i;
+		jobs[i].addr = 0;
+		jobs[i].g = &g;
+		ASSERT_SUCCESS(mythread_create(&t[i], NULL, worker_k2_tls,
+		                               &jobs[i]));
+	}
+	k_wait_all_arrived(&g, K_N);
+
+	uintptr_t mine = (uintptr_t)&k2_tls;
+	for (int i = 0; i < K_N; ++i) {
+		ASSERT_TRUE(jobs[i].addr != mine);
+		for (int k = i + 1; k < K_N; ++k)
+			ASSERT_TRUE(jobs[i].addr != jobs[k].addr);
+	}
+
+	__atomic_store_n(&g.open, 1, __ATOMIC_SEQ_CST);
+	for (int i = 0; i < K_N; ++i) {
+		void *ret = (void *)(intptr_t)-3;
+		ASSERT_SUCCESS(mythread_join(t[i], &ret));
+		ASSERT_NULL(ret);   /* fresh TLS copy, value kept */
+	}
+	ASSERT_EQ(k2_tls, -1);   /* nobody wrote into main's copy */
+	return TEST_SUCCESS;
+}
