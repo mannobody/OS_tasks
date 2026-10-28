@@ -43,6 +43,7 @@ main(void)
 		{"exit_nested",          test_exit_nested,          timeout, 0},
 		{"exit_from_main",       test_exit_from_main,       timeout,
 		                         TEST_EXITS_PROCESS | TEST_SKIP_SANITIZE},
+		{"exit_from_thread",     test_exit_from_thread,     timeout, TEST_EXITS_PROCESS},
 
 		{"stress_many_threads",  test_stress_many_threads,  timeout, 0},
 		{"stress_churn",         test_stress_churn,         timeout, 0},

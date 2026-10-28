@@ -295,3 +295,66 @@ test_exit_from_main(void)
 	/* unreachable if mythread_exit is correct */
 	return TEST_FAILURE;
 }
+
+/*
+ * Spinner for E10: raises "up", then spins until the process goes away.
+ * Nothing ever releases it, so if it is still running after the exiter
+ * is done, exit() did not take the whole thread group down.
+ */
+static void *
+worker_spin_forever(void *arg)
+{
+	volatile int *up = (volatile int *)arg;
+
+	__atomic_store_n(up, 1, __ATOMIC_SEQ_CST);
+	for (;;)
+		; /* only process exit ends this */
+	return NULL;
+}
+
+#define E10_SPINNERS 3
+
+struct e10ctx {
+	volatile int up[E10_SPINNERS];
+};
+
+/* Waits until every spinner runs, then ends the process from here. */
+static void *
+worker_exit_process(void *arg)
+{
+	struct e10ctx *c = (struct e10ctx *)arg;
+
+	for (int i = 0; i < E10_SPINNERS; ++i)
+		while (!__atomic_load_n(&c->up[i], __ATOMIC_SEQ_CST))
+			;
+	exit(TEST_EXIT_MARKER);
+}
+
+/*
+ * [E10] exit() called from an ordinary (non-main) thread ends the whole
+ * process with that status, while main is blocked in join and other
+ * threads are busy spinning. Flagged TEST_EXITS_PROCESS in main.c, so
+ * exit code 42 is the pass.
+ *
+ * What fails: exit() ending only the calling thread — join returns and
+ * main reports TEST_FAILURE; the spinners outliving exit() — the
+ * runner sees no exit and reports a timeout; a crash in the exit path.
+ */
+int
+test_exit_from_thread(void)
+{
+	static struct e10ctx c;
+	static mythread_t spin[E10_SPINNERS];
+	static mythread_t exiter;
+
+	for (int i = 0; i < E10_SPINNERS; ++i)
+		ASSERT_SUCCESS(mythread_create(&spin[i], NULL, worker_spin_forever,
+		                               (void *)&c.up[i]));
+	ASSERT_SUCCESS(mythread_create(&exiter, NULL, worker_exit_process, &c));
+
+	(void)mythread_join(exiter, NULL);
+
+	/* unreachable: exit() in the worker must have ended the process */
+	fprintf(stderr, "  exit() from a thread did not end the process\n");
+	return TEST_FAILURE;
+}
