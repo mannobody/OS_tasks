@@ -7,15 +7,31 @@ typedef struct {
     const char *name;
     test_fn_t   fn;
     int         timeout_ms;   /* 0 by default */
+    int         flags;        /* TEST_* flags below, 0 by default */
 } test_case_t;
+
+/* The test ends the whole process itself (mythread_exit or exit from
+ * main) instead of returning; only then is TEST_EXIT_MARKER a pass. */
+#define TEST_EXITS_PROCESS  (1 << 0)
+/* The test measures something a sanitizer runtime distorts (RSS, the
+ * task count of the process, process exit with its helper thread
+ * alive): reported as SKIP in ASan/TSan builds instead of being run. */
+#define TEST_SKIP_SANITIZE  (1 << 1)
+/* Same for valgrind: it distorts RSS too, and with every thread run
+ * one at a time a test with hundreds of spinning threads cannot finish
+ * in any sane timeout. Reported as SKIP when run under valgrind. */
+#define TEST_SKIP_VALGRIND  (1 << 2)
 
 #define TEST_SUCCESS  0
 #define TEST_FAILURE  1
 #define TEST_TIMEOUT  2   /* set by the runner, not by tests */
+#define TEST_SKIP     3   /* the test does not apply in this build or
+                           * environment; counted as skipped, not failed */
 
 /* Special-case marker for tests that terminate the process themselves
  * (e.g. mythread_exit from main): the runner treats exit code 42 as
- * success for such tests. */
+ * success, but only for tests flagged TEST_EXITS_PROCESS — anywhere
+ * else a stray exit(42) is a failure like any other exit code. */
 #define TEST_EXIT_MARKER 42
 
 int run_all(const test_case_t *tests, int n);

@@ -278,15 +278,15 @@ test_exit_nested(void)
 }
 
 /*
- * [E3] mythread_exit() from the main thread. Per POSIX semantics this
- * ends the whole *process*, not just the calling thread — a correct
- * implementation must turn it into process termination. The runner
- * reads the child's exit status, so an implementation that merely
- * "returns" or terminates only one thread stays observable: the process
- * would exit 0/1 instead of the marker value 42.
+ * [E3] mythread_exit() from the main thread when it is the only thread.
+ * Nothing else is left to run, so the process must end. POSIX does
+ * not pass the retval on as the exit status: with pthreads the last
+ * thread exiting gives exit code 0. An implementation that turns it
+ * into exit((int)retval) gives 42 instead; the test is flagged
+ * TEST_EXITS_PROCESS in main.c, so the runner accepts both.
  *
- * NOTE: this test never returns normally — it terminates the test child
- * with exit code 42 (special-cased in framework/runner.c).
+ * What fails: mythread_exit returning to the caller (TEST_FAILURE,
+ * exit code 1), a crash, or a process that never ends (timeout).
  */
 int
 test_exit_from_main(void)
