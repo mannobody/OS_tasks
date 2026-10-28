@@ -1,6 +1,7 @@
 #include "runner.h"
 #include "colors.h"
 
+#include <fnmatch.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,8 +178,26 @@ run_one(const test_case_t *t, double scale)
 	return TEST_FAILURE;
 }
 
+static int
+selected(const char *name, const char *const *patterns, int npatterns)
+{
+	if (npatterns == 0)
+		return 1;
+	for (int i = 0; i < npatterns; ++i)
+		if (fnmatch(patterns[i], name, 0) == 0)
+			return 1;
+	return 0;
+}
+
 int
 run_all(const test_case_t *tests, int n)
+{
+	return run_selected(tests, n, NULL, 0);
+}
+
+int
+run_selected(const test_case_t *tests, int n,
+             const char *const *patterns, int npatterns)
 {
 	int passed = 0, failed = 0, skipped = 0;
 
@@ -194,6 +213,9 @@ run_all(const test_case_t *tests, int n)
 
 	for (int i = 0; i < n; ++i) {
 		const test_case_t *t = &tests[i];
+
+		if (!selected(t->name, patterns, npatterns))
+			continue;
 
 		printf("RUN %s ... ", t->name);
 		fflush(stdout);
@@ -228,6 +250,10 @@ run_all(const test_case_t *tests, int n)
 		}
 	}
 
+	if (passed + failed + skipped == 0) {
+		fprintf(stderr, "no test matches the given pattern(s)\n");
+		return 1;
+	}
 	printf("\npassed: %d, failed: %d, skipped: %d\n",
 		   passed, failed, skipped);
 	return failed == 0 ? 0 : 1;

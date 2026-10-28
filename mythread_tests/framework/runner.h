@@ -37,6 +37,13 @@ typedef struct {
 
 int run_all(const test_case_t *tests, int n);
 
+/* Like run_all, but runs only the tests whose name matches one of the
+ * npatterns shell-style patterns (fnmatch: "join_*", "kernel_?ids").
+ * npatterns == 0 runs everything. Patterns that select nothing are a
+ * failure, so a typo cannot pass as an empty green run. */
+int run_selected(const test_case_t *tests, int n,
+                 const char *const *patterns, int npatterns);
+
 /* Emulates "return from main": ends the test child as if its main()
  * had returned `value` (a full exit(), so the process semantics with
  * still-running detached threads are exercised). Never returns.

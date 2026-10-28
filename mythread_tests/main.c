@@ -2,8 +2,9 @@
 #include "tests.h"
 #include <stddef.h>
 
+/* Arguments, if any, are test-name patterns: ./mythread_tests 'join_*' */
 int
-main(void)
+main(int argc, char **argv)
 {
 	const int timeout = 5000;
 	const test_case_t tests[] =
@@ -92,5 +93,5 @@ main(void)
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));
 
-	return run_all(tests, n);
+	return run_selected(tests, n, (const char *const *)argv + 1, argc - 1);
 }
