@@ -138,8 +138,8 @@ Two tips:
 1. **Fork-per-test runner (framework/runner.c)**
 Each test runs in a child process created with fork(). The parent waits with a timeout (default 5000 ms, per-test override via timeout_ms). If the child doesn't exit in time it is killed with SIGKILL and reported as **TIMEOUT**. Crashes (segfaults, aborts) are reported as **FAIL** with the signal number.
 
-2. **Negative tests (tests/test_errors.c)**
-POSIX leaves most bad-input cases undefined, so by default these only require the implementation not to hang or crash the caller. Build with `-DMYTHREAD_STRICT_ERRORS` (`make check-strict`, or `make STRICT=1`) to additionally require explicit error codes — use this when grading strict implementations.
+2. **Negative tests and strict mode (tests/test_errors.c and others)**
+POSIX leaves most bad-input cases undefined: join/detach of a spent, detached or zero handle, self-join, several joins of one thread, a NULL start routine. glibc crashes or misbehaves on many of them, so by default these calls are **not made at all** — a thin pthread wrapper must not fail for reasons outside the student's control. Build with `-DMYTHREAD_STRICT_ERRORS` (`make check-strict`, or `make STRICT=1`) to make them and require explicit error codes — use this when grading implementations that validate their handles. The pthread reference is not one of them, so several strict tests fail on it by design.
 
 ---
 
