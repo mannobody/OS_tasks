@@ -45,20 +45,37 @@ worker_barrier(void *arg)
  * verifies the content afterwards — possible only if each thread owned
  * its own stack between create() and join().
  */
+#define FILL_BUF 4096
 struct fill_job {
-	uint8_t *buf;
-	size_t   len;
-	uint8_t  pattern;
+	uint8_t    pattern;
+	uintptr_t  addr;    /* where the worker's stack buffer lives */
+	int       *filled;  /* shared count of workers done filling */
+	int       *go;      /* shared gate: verify once all are filled */
 };
 
+/*
+ * Fills a buffer on *its own stack*, publishes its address, waits until
+ * every sibling has done the same and only then checks the pattern is
+ * still intact. All workers are alive at once, so threads sharing one
+ * stack area overwrite each other. Returns NULL on success.
+ */
 static void *
 worker_fill_pattern(void *arg)
 {
 	struct fill_job *j = (struct fill_job *)arg;
+	volatile uint8_t buf[FILL_BUF];   /* volatile: keep it in memory */
 
-	for (size_t i = 0; i < j->len; ++i)
-		j->buf[i] = j->pattern;
+	for (size_t i = 0; i < FILL_BUF; ++i)
+		buf[i] = j->pattern;
 
+	__atomic_store_n(&j->addr, (uintptr_t)buf, __ATOMIC_SEQ_CST);
+	__atomic_fetch_add(j->filled, 1, __ATOMIC_SEQ_CST);
+	while (!__atomic_load_n(j->go, __ATOMIC_SEQ_CST))
+		;
+
+	for (size_t i = 0; i < FILL_BUF; ++i)
+		if (buf[i] != j->pattern)
+			return (void *)(intptr_t)-1;
 	return NULL;
 }
 
@@ -235,36 +252,48 @@ test_create_nested(void)
 }
 
 /*
- * Distinct threads must own distinct stacks: each worker fills a buffer
- * with its own byte pattern, the main thread verifies everything after
- * joining. A shared-stack implementation (the classic 1.6 bug: handing
- * every thread the same stack area) gets its patterns overwritten and
- * the test fails.
+ * Distinct threads must own distinct stacks: N live workers each fill
+ * a buffer on their own stack with their own byte pattern. Main checks
+ * that no two buffers overlap, then lets every worker verify its own
+ * pattern survived. A shared-stack implementation (the classic 1.6
+ * bug: handing every thread the same stack area) fails either check.
  */
 int
 test_create_distinct_stacks(void)
 {
 #define N 8
-#define BUF 4096
 	static struct fill_job jobs[N];
-	static uint8_t bufs[N][BUF];
 	static mythread_t t[N];
+	static int filled, go;
 
+	filled = 0;
+	go = 0;
 	for (int i = 0; i < N; ++i) {
-		jobs[i].buf = bufs[i];
-		jobs[i].len = BUF;
 		jobs[i].pattern = (uint8_t)(0x10 + i);
+		jobs[i].addr = 0;
+		jobs[i].filled = &filled;
+		jobs[i].go = &go;
 		ASSERT_SUCCESS(mythread_create(&t[i], NULL,
 		                               worker_fill_pattern, &jobs[i]));
 	}
-	for (int i = 0; i < N; ++i)
-		ASSERT_SUCCESS(mythread_join(t[i], NULL));
+
+	/* every worker is alive with its buffer filled */
+	while (__atomic_load_n(&filled, __ATOMIC_SEQ_CST) < N)
+		;
 
 	for (int i = 0; i < N; ++i)
-		for (size_t k = 0; k < BUF; ++k)
-			ASSERT_EQ(bufs[i][k], (uint8_t)(0x10 + i));
+		for (int k = i + 1; k < N; ++k) {
+			uintptr_t a = jobs[i].addr, b = jobs[k].addr;
+			ASSERT_TRUE(a + FILL_BUF <= b || b + FILL_BUF <= a);
+		}
 
+	__atomic_store_n(&go, 1, __ATOMIC_SEQ_CST);
+	for (int i = 0; i < N; ++i) {
+		void *ret = (void *)(intptr_t)-2;
+		ASSERT_SUCCESS(mythread_join(t[i], &ret));
+		ASSERT_NULL(ret);   /* the worker's pattern was intact */
+	}
 #undef N
-#undef BUF
 	return TEST_SUCCESS;
 }
+#undef FILL_BUF
