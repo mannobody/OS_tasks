@@ -12,7 +12,8 @@ main(void)
 		{"create_data_passing",    test_create_data_passing,    timeout, 0},
 		{"create_parallel_run",    test_create_parallel_run,    timeout, 0},
 		{"create_distinct_stacks", test_create_distinct_stacks, timeout, 0},
-		{"create_until_failure",   test_create_until_failure,   timeout, 0},
+		{"create_until_failure",   test_create_until_failure,   timeout,
+		                           TEST_SKIP_VALGRIND},
 		{"create_nested",          test_create_nested,          timeout, 0},
 
 		{"join_null_retval",     test_join_null_retval,     timeout, 0},
@@ -68,8 +69,10 @@ main(void)
 		{"race_nested_create_join", test_race_nested_create_join, timeout, 0},
 		{"race_cross_detach",    test_race_cross_detach,    timeout, 0},
 
-		{"resource_mem_join",    test_resource_mem_join,    timeout * 2, TEST_SKIP_SANITIZE},
-		{"resource_mem_detach",  test_resource_mem_detach,  timeout * 2, TEST_SKIP_SANITIZE},
+		{"resource_mem_join",    test_resource_mem_join,    timeout * 2,
+		                         TEST_SKIP_SANITIZE | TEST_SKIP_VALGRIND},
+		{"resource_mem_detach",  test_resource_mem_detach,  timeout * 2,
+		                         TEST_SKIP_SANITIZE | TEST_SKIP_VALGRIND},
 		{"resource_reclaimed",   test_resource_threads_reclaimed, timeout, TEST_SKIP_SANITIZE},
 		{"resource_fds",         test_resource_fds,         timeout, 0},
 

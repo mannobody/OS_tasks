@@ -17,6 +17,10 @@ typedef struct {
  * task count of the process, process exit with its helper thread
  * alive): reported as SKIP in ASan/TSan builds instead of being run. */
 #define TEST_SKIP_SANITIZE  (1 << 1)
+/* Same for valgrind: it distorts RSS too, and with every thread run
+ * one at a time a test with hundreds of spinning threads cannot finish
+ * in any sane timeout. Reported as SKIP when run under valgrind. */
+#define TEST_SKIP_VALGRIND  (1 << 2)
 
 #define TEST_SUCCESS  0
 #define TEST_FAILURE  1

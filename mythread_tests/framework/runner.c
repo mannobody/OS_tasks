@@ -4,6 +4,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -21,6 +22,27 @@
 #ifndef SANITIZED
 #define SANITIZED 0
 #endif
+
+/* Valgrind is a runtime matter: its client request answers exactly when
+ * the header is installed; otherwise its preload library in LD_PRELOAD
+ * gives it away. */
+#if defined(__has_include)
+#if __has_include(<valgrind/valgrind.h>)
+#include <valgrind/valgrind.h>
+#define HAVE_VALGRIND_H 1
+#endif
+#endif
+
+static int
+under_valgrind(void)
+{
+#ifdef HAVE_VALGRIND_H
+	return RUNNING_ON_VALGRIND != 0;
+#else
+	const char *pre = getenv("LD_PRELOAD");
+	return pre && strstr(pre, "vgpreload") != NULL;
+#endif
+}
 
 /*
  * Stand-in for "return from main()". A plain return inside our test
@@ -64,6 +86,8 @@ run_one(const test_case_t *t, double scale)
 	int timeout = ms < 10 ? 10 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
 
 	if (SANITIZED && (t->flags & TEST_SKIP_SANITIZE))
+		return TEST_SKIP;
+	if ((t->flags & TEST_SKIP_VALGRIND) && under_valgrind())
 		return TEST_SKIP;
 
 	pid_t pid = fork();
