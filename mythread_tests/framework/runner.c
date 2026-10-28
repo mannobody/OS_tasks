@@ -78,6 +78,39 @@ timeout_scale(void)
 	return scale;
 }
 
+/*
+ * Each test runs in a process group of its own, and the runner kills
+ * the whole group once the test is over. A broken library can leave
+ * processes behind — clone() without CLONE_THREAD makes real children
+ * that outlive the test — which would keep spinning and hold the
+ * runner's stdout open (`./mythread_tests | head` never ends). If the
+ * runner itself is interrupted it takes the running group down too, as
+ * the group no longer gets the terminal's Ctrl-C.
+ */
+static volatile sig_atomic_t running_group;
+
+static void
+on_fatal_signal(int sig)
+{
+	if (running_group)
+		kill(-running_group, SIGKILL);
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+
+static void
+install_signal_handlers(void)
+{
+	static const int sigs[] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT };
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = on_fatal_signal;
+	sigemptyset(&sa.sa_mask);
+	for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; ++i)
+		sigaction(sigs[i], &sa, NULL);
+}
+
 static int
 run_one(const test_case_t *t, double scale)
 {
@@ -97,38 +130,51 @@ run_one(const test_case_t *t, double scale)
 	}
 
 	if (pid == 0) {
-		/* Child: run the test */
+		/* Child: run the test in its own process group */
+		setpgid(0, 0);
 		_exit(t->fn());
 	}
+	setpgid(pid, pid);   /* both sides, so neither order can race */
+	running_group = pid;
 
-	/* Parent: wait with timeout */
+	/* Parent: wait with timeout. WNOWAIT leaves the child a zombie, so
+	 * its pid, and with it the group id, cannot be reused before the
+	 * group is killed. */
 	int waited = 0;
 	int status = 0;
+	int exited = 0;
 
 	while (waited < timeout) {
-		pid_t r = waitpid(pid, &status, WNOHANG);
-		if (r == pid) {
-			if (WIFEXITED(status)) {
-				int code = WEXITSTATUS(status);
-				/* A test that terminated the whole process via
-				 * mythread_exit reports through exit code 42. */
-				if (code == TEST_EXIT_MARKER &&
-				    (t->flags & TEST_EXITS_PROCESS))
-					return TEST_SUCCESS;
-				return code;
-			}
-			/* died from signal */
-			fprintf(stderr, "\n  child killed by signal %d "
-				"(crash / abort)\n", WTERMSIG(status));
-			return TEST_FAILURE;
+		siginfo_t si;
+		si.si_pid = 0;
+		if (waitid(P_PID, (id_t)pid, &si,
+		           WEXITED | WNOHANG | WNOWAIT) == 0 && si.si_pid == pid) {
+			exited = 1;
+			break;
 		}
 		usleep(10 * 1000);
 		waited += 10;
 	}
 
-	kill(pid, SIGKILL);
+	kill(-pid, SIGKILL);   /* the test and anything it left behind */
 	waitpid(pid, &status, 0);
-	return TEST_TIMEOUT;
+	running_group = 0;
+
+	if (!exited)
+		return TEST_TIMEOUT;
+	if (WIFEXITED(status)) {
+		int code = WEXITSTATUS(status);
+		/* A test that terminated the whole process via
+		 * mythread_exit reports through exit code 42. */
+		if (code == TEST_EXIT_MARKER &&
+		    (t->flags & TEST_EXITS_PROCESS))
+			return TEST_SUCCESS;
+		return code;
+	}
+	/* died from signal */
+	fprintf(stderr, "\n  child killed by signal %d "
+		"(crash / abort)\n", WTERMSIG(status));
+	return TEST_FAILURE;
 }
 
 int
@@ -144,6 +190,7 @@ run_all(const test_case_t *tests, int n)
 	if (repeat < 1)
 		repeat = 1;
 	double scale = timeout_scale();
+	install_signal_handlers();
 
 	for (int i = 0; i < n; ++i) {
 		const test_case_t *t = &tests[i];
