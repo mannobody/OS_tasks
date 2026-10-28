@@ -1,6 +1,7 @@
 #include "mythread.h"
 #include "assert.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -8,7 +9,7 @@
 /* Kernel-thread semantics (K1..): what a clone()-based 1.6 library must
  * get right beyond create/join/detach bookkeeping.
  *
- * Every test keeps all its workers alive at the same time behind a
+ * Tests with many workers keep them all alive at the same time behind a
  * gate, so state that is shared by mistake (one errno, one TLS block,
  * one stack) is overwritten by a sibling before it is checked. Workers
  * report through their return value (NULL = fine), so the verdict does
@@ -225,5 +226,60 @@ test_kernel_ids(void)
 	__atomic_store_n(&g.open, 1, __ATOMIC_SEQ_CST);
 	for (int i = 0; i < K_N; ++i)
 		ASSERT_SUCCESS(mythread_join(t[i], NULL));
+	return TEST_SUCCESS;
+}
+
+/*
+ * [K4] The fd table is shared (CLONE_FILES). Main opens a pipe; the
+ * worker opens a pipe of its own, hands the numbers back and closes
+ * the read end of main's pipe. Main must see both effects: its read end is gone,
+ * and the worker's pipe works from main. With a private copy of the
+ * table the close stays local and the new numbers are unknown in main.
+ */
+struct k4_job {
+	int close_fd;      /* main's fd the worker closes */
+	int fds[2];        /* pipe opened by the worker */
+};
+
+static void *
+worker_k4_fds(void *arg)
+{
+	struct k4_job *j = (struct k4_job *)arg;
+
+	/* pipe first: after the close, pipe() would reuse close_fd's number */
+	if (pipe(j->fds) != 0)
+		return (void *)(intptr_t)-1;
+	if (close(j->close_fd) != 0)
+		return (void *)(intptr_t)-2;
+	return NULL;
+}
+
+int
+test_kernel_fd_shared(void)
+{
+	int mine[2];
+	struct k4_job j = { .fds = { -1, -1 } };
+	mythread_t t;
+
+	ASSERT_SUCCESS(pipe(mine));
+	j.close_fd = mine[0];
+	ASSERT_SUCCESS(mythread_create(&t, NULL, worker_k4_fds, &j));
+
+	void *ret = (void *)(intptr_t)-3;
+	ASSERT_SUCCESS(mythread_join(t, &ret));
+	ASSERT_NULL(ret);
+
+	/* the close made in the worker is visible here */
+	ASSERT_TRUE(fcntl(mine[0], F_GETFD) == -1);
+	close(mine[1]);
+
+	/* the worker's pipe is usable from main */
+	char c = 'k';
+	ASSERT_EQ(write(j.fds[1], &c, 1), 1);
+	c = 0;
+	ASSERT_EQ(read(j.fds[0], &c, 1), 1);
+	ASSERT_EQ(c, 'k');
+	close(j.fds[0]);
+	close(j.fds[1]);
 	return TEST_SUCCESS;
 }

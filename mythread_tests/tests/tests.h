@@ -85,5 +85,6 @@ int test_error_join_self(void);
 int test_kernel_errno_per_thread(void);
 int test_kernel_tls_per_thread(void);
 int test_kernel_ids(void);
+int test_kernel_fd_shared(void);
 
 #endif

@@ -79,6 +79,7 @@ main(void)
 		{"kernel_errno",         test_kernel_errno_per_thread, timeout},
 		{"kernel_tls",           test_kernel_tls_per_thread,   timeout},
 		{"kernel_ids",           test_kernel_ids,              timeout},
+		{"kernel_fd_shared",     test_kernel_fd_shared,        timeout},
 	};
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));
