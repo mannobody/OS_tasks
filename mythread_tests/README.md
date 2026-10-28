@@ -58,6 +58,7 @@ mythread_tests/
 │ ├── test_race.c 		# concurrency & race scenarios
 │ ├── test_resource.c 	# leaks, reclamation, fd hygiene
 │ ├── test_errors.c 	# bad-input behaviour
+│ ├── test_kernel.c 	# kernel-thread semantics (clone flags, TLS, stack)
 │ └── test_stress.c
 ├── framework/
 │ ├── runner.c 			# fork + timeout per test
@@ -141,6 +142,9 @@ Each test runs in a child process created with fork(). The parent waits with a t
 2. **Negative tests and strict mode (tests/test_errors.c and others)**
 POSIX leaves most bad-input cases undefined: join/detach of a spent, detached or zero handle, self-join, several joins of one thread, a NULL start routine. glibc crashes or misbehaves on many of them, so by default these calls are **not made at all** — a thin pthread wrapper must not fail for reasons outside the student's control. Build with `-DMYTHREAD_STRICT_ERRORS` (`make check-strict`, or `make STRICT=1`) to make them and require explicit error codes — use this when grading implementations that validate their handles. The pthread reference is not one of them, so several strict tests fail on it by design.
 
+3. **Kernel-thread semantics (tests/test_kernel.c)**
+A 1.6 library builds threads on `clone()`, and most mistakes there do not break create/join at all. These tests check what the clone flags and the thread setup must provide: errno and `_Thread_local` variables per thread (`CLONE_SETTLS`), one pid and distinct tids (`CLONE_THREAD`), shared memory (`CLONE_VM`) and a shared fd table (`CLONE_FILES`), a 16-byte aligned stack, a stack deep enough for a 128 KiB local array, and malloc/stdio working from many threads at once. Each test was checked to fail on an implementation that lacks the property it checks.
+
 ---
 
 ## Test environment knobs
@@ -149,6 +153,7 @@ POSIX leaves most bad-input cases undefined: join/detach of a spent, detached or
 |---|---|
 | `MYTHREAD_REPEAT=20 ./mythread_tests` | run every test N times, each in a fresh process — race-hunt mode (nondeterministic failures report which repetition broke) |
 | `make CPPFLAGS=-DMYTHREAD_STRESS_LEVEL=3 ...` | heavier stress loops (100k lifecycles, longer soak); levels 1–3, default 1 |
+| `make CPPFLAGS=-DMYTHREAD_DEEP_STACK_KIB=512 ...` | stack depth demanded by `kernel_deep_stack`, in KiB (default 128) — lower it if your library documents a smaller thread stack |
 | `make sanitize` | the whole suite under ThreadSanitizer — proves tests are race-free and surfaces races in the implementation |
 | `make sanitize-mem` | the whole suite under ASan + UBSan (use-after-free, leaks) |
 | `make valgrind` | the whole suite under Valgrind memcheck |
