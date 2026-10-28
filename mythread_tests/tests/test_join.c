@@ -202,9 +202,10 @@ test_join_already_exited(void)
 
 /*
  * [J4, J10] Join of a detached thread. POSIX calls this undefined;
- * real implementations answer with EINVAL/ESCH or, badly, hang. Weak
- * mode tolerates any outcome but demands the library survives (the
- * parked worker is released and a probe create/join must work).
+ * real implementations answer with EINVAL/ESRCH or, badly, hang, and
+ * the TSan pthread_join interceptor aborts. So weak mode does not make the
+ * call and only demands that detaching a parked thread leaves the
+ * library usable (the worker is released, a probe create/join works).
  * Strict mode requires an explicit error code.
  */
 int
@@ -216,11 +217,8 @@ test_join_detached(void)
 	ASSERT_SUCCESS(mythread_create(&t, NULL, worker_park, &p));
 	ASSERT_SUCCESS(mythread_detach(t));
 
-	int rc = mythread_join(t, NULL);
 #ifdef MYTHREAD_STRICT_ERRORS
-	ASSERT_FAILURE(rc);
-#else
-	(void)rc;
+	ASSERT_FAILURE(mythread_join(t, NULL));
 #endif
 
 	/* let the detached thread finish; nobody joins it */
