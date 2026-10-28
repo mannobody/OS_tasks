@@ -81,4 +81,13 @@ int test_error_null_routine(void);
 int test_error_join_invalid(void);
 int test_error_join_self(void);
 
+/* kernel-thread semantics */
+int test_kernel_errno_per_thread(void);
+int test_kernel_tls_per_thread(void);
+int test_kernel_ids(void);
+int test_kernel_fd_shared(void);
+int test_kernel_stack_align(void);
+int test_kernel_deep_stack(void);
+int test_kernel_libc_parallel(void);
+
 #endif
