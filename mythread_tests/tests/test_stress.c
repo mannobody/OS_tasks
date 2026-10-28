@@ -16,7 +16,7 @@
  * The heavy loops are dimensioned by MYTHREAD_STRESS_LEVEL (1..3,
  * default 1): level 1 keeps the full suite well under a minute,
  * level 3 (grading deep-dive) pushes into minutes. Override:
- *   make CFLAGS+=-DMYTHREAD_STRESS_LEVEL=3
+ *   make CPPFLAGS=-DMYTHREAD_STRESS_LEVEL=3
  */
 
 #ifndef MYTHREAD_STRESS_LEVEL

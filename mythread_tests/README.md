@@ -139,7 +139,7 @@ Two tips:
 Each test runs in a child process created with fork(). The parent waits with a timeout (default 5000 ms, per-test override via timeout_ms). If the child doesn't exit in time it is killed with SIGKILL and reported as **TIMEOUT**. Crashes (segfaults, aborts) are reported as **FAIL** with the signal number.
 
 2. **Negative tests (tests/test_errors.c)**
-POSIX leaves most bad-input cases undefined, so by default these only require the implementation not to hang or crash the caller. Build with `-DMYTHREAD_STRICT_ERRORS` (add to CFLAGS) to additionally require explicit error codes — use this when grading strict implementations.
+POSIX leaves most bad-input cases undefined, so by default these only require the implementation not to hang or crash the caller. Build with `-DMYTHREAD_STRICT_ERRORS` (`make check-strict`, or `make STRICT=1`) to additionally require explicit error codes — use this when grading strict implementations.
 
 ---
 
@@ -148,7 +148,7 @@ POSIX leaves most bad-input cases undefined, so by default these only require th
 | Knob | Meaning |
 |---|---|
 | `MYTHREAD_REPEAT=20 ./mythread_tests` | run every test N times, each in a fresh process — race-hunt mode (nondeterministic failures report which repetition broke) |
-| `make CFLAGS+=-DMYTHREAD_STRESS_LEVEL=3 ...` | heavier stress loops (100k lifecycles, longer soak); levels 1–3, default 1 |
+| `make CPPFLAGS=-DMYTHREAD_STRESS_LEVEL=3 ...` | heavier stress loops (100k lifecycles, longer soak); levels 1–3, default 1 |
 | `make sanitize` | the whole suite under ThreadSanitizer — proves tests are race-free and surfaces races in the implementation |
 | `make sanitize-mem` | the whole suite under ASan + UBSan (use-after-free, leaks) |
 | `make valgrind` | the whole suite under Valgrind memcheck |
