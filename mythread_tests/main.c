@@ -82,6 +82,7 @@ main(void)
 		{"kernel_fd_shared",     test_kernel_fd_shared,        timeout},
 		{"kernel_stack_align",   test_kernel_stack_align,      timeout},
 		{"kernel_deep_stack",    test_kernel_deep_stack,       timeout},
+		{"kernel_libc_parallel", test_kernel_libc_parallel,    timeout},
 	};
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));

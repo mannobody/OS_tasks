@@ -88,5 +88,6 @@ int test_kernel_ids(void);
 int test_kernel_fd_shared(void);
 int test_kernel_stack_align(void);
 int test_kernel_deep_stack(void);
+int test_kernel_libc_parallel(void);
 
 #endif

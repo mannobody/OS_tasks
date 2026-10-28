@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -386,6 +387,80 @@ test_kernel_deep_stack(void)
 		void *ret = (void *)(intptr_t)-2;
 		ASSERT_SUCCESS(mythread_join(t[i], &ret));
 		ASSERT_NULL(ret);   /* the whole array survived */
+	}
+	return TEST_SUCCESS;
+}
+
+/*
+ * [K7] libc works from many threads at once. malloc keeps a per-thread
+ * cache (glibc's tcache) and stdio keeps per-thread state, both in TLS,
+ * and they lock nothing on the fast path. Threads that share one TLS
+ * block race on these unlocked structures: two threads get the same
+ * chunk, or the heap check aborts. K_N workers start together and churn
+ * malloc/snprintf/free, each keeping a ring of live blocks tagged with
+ * its own id; a block that changed under its owner fails the test.
+ */
+#define K7_RING  16
+#define K7_ITERS 20000
+
+struct k7_job {
+	int id;
+	struct k_gate *g;
+};
+
+static void *
+worker_k7_libc(void *arg)
+{
+	struct k7_job *j = (struct k7_job *)arg;
+	char *ring[K7_RING] = { 0 };
+	char want[32];
+	void *bad = NULL;
+
+	k_arrive_and_wait(j->g);
+	for (int i = 0; i < K7_ITERS && !bad; ++i) {
+		int k = i % K7_RING;
+		if (ring[k]) {
+			snprintf(want, sizeof want, "%d:%d", j->id, i - K7_RING);
+			if (strcmp(ring[k], want) != 0)
+				bad = (void *)(intptr_t)-1;   /* block reused */
+			free(ring[k]);
+		}
+		/* sizes vary so several tcache bins are in play */
+		ring[k] = malloc(32 + (size_t)(i % 7) * 16);
+		if (!ring[k]) {
+			bad = (void *)(intptr_t)-2;
+			break;
+		}
+		snprintf(ring[k], 32, "%d:%d", j->id, i);
+	}
+	for (int k = 0; k < K7_RING; ++k)
+		free(ring[k]);
+	return bad;
+}
+
+int
+test_kernel_libc_parallel(void)
+{
+	static struct k7_job jobs[K_N];
+	static struct k_gate g;
+	static mythread_t t[K_N];
+
+	g.arrived = 0;
+	g.open = 0;
+	for (int i = 0; i < K_N; ++i) {
+		jobs[i].id = i;
+		jobs[i].g = &g;
+		ASSERT_SUCCESS(mythread_create(&t[i], NULL, worker_k7_libc,
+		                               &jobs[i]));
+	}
+	/* release everyone at once to maximize contention */
+	k_wait_all_arrived(&g, K_N);
+	__atomic_store_n(&g.open, 1, __ATOMIC_SEQ_CST);
+
+	for (int i = 0; i < K_N; ++i) {
+		void *ret = (void *)(intptr_t)-3;
+		ASSERT_SUCCESS(mythread_join(t[i], &ret));
+		ASSERT_NULL(ret);   /* every block kept its owner's tag */
 	}
 	return TEST_SUCCESS;
 }
