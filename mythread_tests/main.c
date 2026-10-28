@@ -76,6 +76,14 @@ main(void)
 		{"error_null_routine",   test_error_null_routine,   timeout, 0},
 		{"error_join_invalid",   test_error_join_invalid,   timeout, 0},
 		{"error_join_self",      test_error_join_self,      timeout, 0},
+
+		{"kernel_errno",         test_kernel_errno_per_thread, timeout, 0},
+		{"kernel_tls",           test_kernel_tls_per_thread,   timeout, 0},
+		{"kernel_ids",           test_kernel_ids,              timeout, 0},
+		{"kernel_fd_shared",     test_kernel_fd_shared,        timeout, 0},
+		{"kernel_stack_align",   test_kernel_stack_align,      timeout, 0},
+		{"kernel_deep_stack",    test_kernel_deep_stack,       timeout, 0},
+		{"kernel_libc_parallel", test_kernel_libc_parallel,    timeout, 0},
 	};
 
 	const int n = (int)(sizeof(tests) / sizeof(tests[0]));

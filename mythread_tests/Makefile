@@ -94,6 +94,7 @@ SRC := \
     tests/test_race.c \
     tests/test_resource.c \
     tests/test_errors.c \
+    tests/test_kernel.c \
     $(IMPL_SRC)
 
 mythread_tests: $(SRC)
