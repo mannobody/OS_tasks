@@ -1,10 +1,12 @@
 #include "runner.h"
 #include "colors.h"
 
+#include <fnmatch.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -88,6 +90,9 @@ timeout_scale(void)
  * the group no longer gets the terminal's Ctrl-C.
  */
 static volatile sig_atomic_t running_group;
+/* Held blocked from fork() until running_group names the new child,
+ * so a ^C in between cannot leave that child running. */
+static sigset_t fatal_set;
 
 static void
 on_fatal_signal(int sig)
@@ -107,44 +112,79 @@ install_signal_handlers(void)
 	memset(&sa, 0, sizeof sa);
 	sa.sa_handler = on_fatal_signal;
 	sigemptyset(&sa.sa_mask);
-	for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; ++i)
+	sigemptyset(&fatal_set);
+	for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; ++i) {
 		sigaction(sigs[i], &sa, NULL);
+		sigaddset(&fatal_set, sigs[i]);
+	}
+}
+
+static long
+now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* SIGCHLD stays blocked in the runner and is collected synchronously
+ * with sigtimedwait, so a test that ends early is noticed at once
+ * rather than on the next poll tick. */
+static sigset_t sigchld_set;
+
+static void
+block_sigchld(void)
+{
+	sigemptyset(&sigchld_set);
+	sigaddset(&sigchld_set, SIGCHLD);
+	signal(SIGCHLD, SIG_DFL);   /* SIG_IGN would auto-reap the child */
+	sigprocmask(SIG_BLOCK, &sigchld_set, NULL);
 }
 
 static int
 run_one(const test_case_t *t, double scale)
 {
 	double ms = (t->timeout_ms ? t->timeout_ms : DEFAULT_TIMEOUT_MS) * scale;
-	/* at least one poll interval; capped so the wait loop cannot overflow */
-	int timeout = ms < 10 ? 10 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
+	/* capped so the deadline arithmetic cannot overflow */
+	int timeout = ms < 1 ? 1 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
 
 	if (SANITIZED && (t->flags & TEST_SKIP_SANITIZE))
 		return TEST_SKIP;
 	if ((t->flags & TEST_SKIP_VALGRIND) && under_valgrind())
 		return TEST_SKIP;
 
+	sigset_t saved;
+	sigprocmask(SIG_BLOCK, &fatal_set, &saved);
+
 	pid_t pid = fork();
 	if (pid < 0) {
 		perror("fork");
+		sigprocmask(SIG_SETMASK, &saved, NULL);
 		return TEST_FAILURE;
 	}
 
 	if (pid == 0) {
-		/* Child: run the test in its own process group */
+		/* Child: run the test in its own process group, with no
+		 * signal blocked */
+		sigset_t none;
+		sigemptyset(&none);
 		setpgid(0, 0);
+		sigprocmask(SIG_SETMASK, &none, NULL);
 		_exit(t->fn());
 	}
 	setpgid(pid, pid);   /* both sides, so neither order can race */
 	running_group = pid;
+	sigprocmask(SIG_SETMASK, &saved, NULL);
 
 	/* Parent: wait with timeout. WNOWAIT leaves the child a zombie, so
 	 * its pid, and with it the group id, cannot be reused before the
 	 * group is killed. */
-	int waited = 0;
+	long deadline = now_ms() + timeout;
 	int status = 0;
 	int exited = 0;
 
-	while (waited < timeout) {
+	for (;;) {
 		siginfo_t si;
 		si.si_pid = 0;
 		if (waitid(P_PID, (id_t)pid, &si,
@@ -152,8 +192,13 @@ run_one(const test_case_t *t, double scale)
 			exited = 1;
 			break;
 		}
-		usleep(10 * 1000);
-		waited += 10;
+		long left = deadline - now_ms();
+		if (left <= 0)
+			break;
+		struct timespec ts = { left / 1000, (left % 1000) * 1000000 };
+		/* SIGCHLD, the timeout or EINTR: re-check in every case
+		 * (a SIGCHLD left pending by an earlier test is harmless) */
+		sigtimedwait(&sigchld_set, NULL, &ts);
 	}
 
 	kill(-pid, SIGKILL);   /* the test and anything it left behind */
@@ -177,8 +222,26 @@ run_one(const test_case_t *t, double scale)
 	return TEST_FAILURE;
 }
 
+static int
+selected(const char *name, const char *const *patterns, int npatterns)
+{
+	if (npatterns == 0)
+		return 1;
+	for (int i = 0; i < npatterns; ++i)
+		if (fnmatch(patterns[i], name, 0) == 0)
+			return 1;
+	return 0;
+}
+
 int
 run_all(const test_case_t *tests, int n)
+{
+	return run_selected(tests, n, NULL, 0);
+}
+
+int
+run_selected(const test_case_t *tests, int n,
+             const char *const *patterns, int npatterns)
 {
 	int passed = 0, failed = 0, skipped = 0;
 
@@ -191,13 +254,18 @@ run_all(const test_case_t *tests, int n)
 		repeat = 1;
 	double scale = timeout_scale();
 	install_signal_handlers();
+	block_sigchld();
 
 	for (int i = 0; i < n; ++i) {
 		const test_case_t *t = &tests[i];
 
+		if (!selected(t->name, patterns, npatterns))
+			continue;
+
 		printf("RUN %s ... ", t->name);
 		fflush(stdout);
 
+		long start = now_ms();
 		int rc = TEST_SUCCESS;
 		for (int rep = 0; rep < repeat && rc == TEST_SUCCESS; ++rep) {
 			int one = run_one(t, scale);
@@ -213,21 +281,28 @@ run_all(const test_case_t *tests, int n)
 			}
 		}
 
+		/* all repetitions together: the wall time the test costs */
+		long elapsed = now_ms() - start;
+
 		if (rc == TEST_SUCCESS) {
-			printf(COLOR_GREEN "OK" COLOR_RESET "\n");
+			printf(COLOR_GREEN "OK" COLOR_RESET " (%ld ms)\n", elapsed);
 			passed++;
 		} else if (rc == TEST_SKIP) {
-			printf(COLOR_YELLOW "SKIP" COLOR_RESET "\n");
+			printf(COLOR_YELLOW "SKIP" COLOR_RESET " (%ld ms)\n", elapsed);
 			skipped++;
 		} else if (rc == TEST_TIMEOUT) {
-			printf(COLOR_RED "TIMEOUT" COLOR_RESET "\n");
+			printf(COLOR_RED "TIMEOUT" COLOR_RESET " (%ld ms)\n", elapsed);
 			failed++;
 		} else {
-			printf(COLOR_RED "FAIL" COLOR_RESET "\n");
+			printf(COLOR_RED "FAIL" COLOR_RESET " (%ld ms)\n", elapsed);
 			failed++;
 		}
 	}
 
+	if (passed + failed + skipped == 0) {
+		fprintf(stderr, "no test matches the given pattern(s)\n");
+		return 1;
+	}
 	printf("\npassed: %d, failed: %d, skipped: %d\n",
 		   passed, failed, skipped);
 	return failed == 0 ? 0 : 1;

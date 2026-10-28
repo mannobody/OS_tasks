@@ -31,6 +31,9 @@ make IMPL=reference mythread_tests
 # Custom
 make IMPL=custom mythread_tests
 ./mythread_tests
+
+# Only some tests: arguments are shell-style name patterns
+./mythread_tests 'join_*' kernel_ids
 ```
 
 Clean up with `make clean` (removes the binary and the generated `build/` shim directory).
@@ -137,7 +140,8 @@ Two tips:
 ## How it works
 
 1. **Fork-per-test runner (framework/runner.c)**
-Each test runs in a child process created with fork(). The parent waits with a timeout (default 5000 ms, per-test override via timeout_ms). If the child doesn't exit in time it is killed with SIGKILL and reported as **TIMEOUT**. Crashes (segfaults, aborts) are reported as **FAIL** with the signal number.
+Each test runs in a child process created with fork(), in a process group of its own. The parent waits with a timeout (default 5000 ms, per-test override via timeout_ms), woken by SIGCHLD rather than by polling. If the child doesn't exit in time it is reported as **TIMEOUT**. Either way the whole group is then killed with SIGKILL, so threads or stray clone()d processes a test leaves behind cannot outlive it; interrupting the runner (^C, SIGTERM) kills the running test's group too. Crashes (segfaults, aborts) are reported as **FAIL** with the signal number. Each result line shows the test's wall time (all repetitions together under `MYTHREAD_REPEAT`).
+Arguments to `./mythread_tests` select tests by name with `fnmatch` patterns (`'join_*'`, `'kernel_?ids'`); a pattern list that selects nothing is a failure, so a typo cannot look like a green run.
 Each entry in main.c also carries `flags`:
    - `TEST_EXITS_PROCESS` — the test ends the whole process itself (`mythread_exit` from main, or `exit()` from any thread — `exit_from_thread` checks that it takes the whole thread group down); only for such tests is exit code 42 a pass, anywhere else it is a failure like any other code.
    - `TEST_SKIP_SANITIZE` / `TEST_SKIP_VALGRIND` — the test measures something the tool distorts (RSS, the task count, process exit with a helper thread alive) or cannot finish under it; in a TSan/ASan build, or when run under valgrind, it is reported as **SKIP** instead of being run. SKIP is counted separately and does not fail the run.
