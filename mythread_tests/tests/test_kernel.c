@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 
@@ -281,5 +283,47 @@ test_kernel_fd_shared(void)
 	ASSERT_EQ(c, 'k');
 	close(j.fds[0]);
 	close(j.fds[1]);
+	return TEST_SUCCESS;
+}
+
+/*
+ * [K5] Every thread starts on a properly aligned stack: the x86-64 and
+ * AArch64 ABIs require 16 bytes at a call, and the compiler places
+ * aligned locals relative to the stack pointer trusting that. A thread
+ * entered with a misaligned stack (e.g. a hand-written trampoline that
+ * pushes one word too many) gets a _Alignas(16) local at an address
+ * that is off by 8, and libc code using aligned SSE stores — printf's
+ * floating-point path among them — dies with SIGSEGV. Each worker of
+ * K_N (different stacks) checks both.
+ */
+static void *
+worker_k5_align(void *arg)
+{
+	(void)arg;
+	_Alignas(16) char probe[16];
+
+	/* through a volatile so the compiler cannot fold the check away */
+	volatile uintptr_t addr = (uintptr_t)probe;
+	if (addr % 16 != 0)
+		return (void *)(intptr_t)-1;
+
+	char buf[32];
+	snprintf(buf, sizeof buf, "%.2f", 3.25);
+	return strcmp(buf, "3.25") == 0 ? NULL : (void *)(intptr_t)-2;
+}
+
+int
+test_kernel_stack_align(void)
+{
+	mythread_t t[K_N];
+
+	for (int i = 0; i < K_N; ++i)
+		ASSERT_SUCCESS(mythread_create(&t[i], NULL, worker_k5_align,
+		                               NULL));
+	for (int i = 0; i < K_N; ++i) {
+		void *ret = (void *)(intptr_t)-3;
+		ASSERT_SUCCESS(mythread_join(t[i], &ret));
+		ASSERT_NULL(ret);   /* aligned stack, printf("%f") works */
+	}
 	return TEST_SUCCESS;
 }

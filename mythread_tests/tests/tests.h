@@ -86,5 +86,6 @@ int test_kernel_errno_per_thread(void);
 int test_kernel_tls_per_thread(void);
 int test_kernel_ids(void);
 int test_kernel_fd_shared(void);
+int test_kernel_stack_align(void);
 
 #endif
