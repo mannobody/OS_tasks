@@ -1,5 +1,12 @@
-CC      ?= gcc
-CFLAGS  ?= -std=c11 -Wall -Wextra -O2 -g
+# make predefines CC=cc, so '?=' would never pick gcc; replace only
+# that built-in default and keep a CC given by the user or environment.
+ifeq ($(origin CC),default)
+  CC := gcc
+endif
+# CFLAGS holds the tunable part only (optimization, debug info,
+# sanitizers): a CFLAGS=... on the command line replaces it as a whole.
+# Extra defines go to CPPFLAGS, e.g. make CPPFLAGS=-DMYTHREAD_STRESS_LEVEL=3
+CFLAGS  ?= -O2 -g
 LDFLAGS ?= -lpthread
 IMPL    ?= reference
 
@@ -48,6 +55,7 @@ endif
 # Mandatory flags use 'override': a CFLAGS=... given on the command line
 # (e.g. by the sanitize targets) then adds to them instead of silently
 # dropping the include paths and the contract header.
+override CFLAGS += -std=c11 -Wall -Wextra
 override CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 # 'include' comes first: the public API contract must always beat any
 # implementation-internal header of the same name.
@@ -94,7 +102,7 @@ ifneq ($(strip $(USING_DEFAULT_TYPES)),)
 	      "framework fallback (include/mythread_types_default.h)." >&2
 	@echo "      Provide your own types header if your handle is not an unsigned long." >&2
 endif
-	$(CC) $(CFLAGS) $(filter %.c,$^) $(IMPL_LIB) -o $@ $(LDFLAGS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(filter %.c,$^) $(IMPL_LIB) -o $@ $(LDFLAGS)
 
 build/mythread_types.h: FORCE
 	@mkdir -p $(@D)
@@ -130,14 +138,14 @@ check-strict:
 sanitize:
 	$(MAKE) clean
 	$(MAKE) mythread_tests \
-	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=thread" \
+	    CFLAGS="-O1 -g -fsanitize=thread" \
 	    LDFLAGS="-fsanitize=thread -lpthread"
 	./mythread_tests
 
 sanitize-mem:
 	$(MAKE) clean
 	$(MAKE) mythread_tests \
-	    CFLAGS="-std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined" \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined" \
 	    LDFLAGS="-fsanitize=address,undefined -lpthread"
 	./mythread_tests
 
