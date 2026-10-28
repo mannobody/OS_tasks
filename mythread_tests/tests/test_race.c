@@ -469,7 +469,7 @@ test_race_cross_detach(void)
 #ifdef MYTHREAD_STRICT_ERRORS
 	/* B is alive but detached — joining it must be an explicit error,
 	 * not a silent success, and it must not hang on the parked B. */
-	ASSERT_FAILURE(mythread_join(b));
+	ASSERT_FAILURE(mythread_join(b, NULL));
 #endif
 
 	/* B runs its detached life to the end; nobody ever joins it */
