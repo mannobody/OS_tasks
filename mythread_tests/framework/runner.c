@@ -113,12 +113,35 @@ install_signal_handlers(void)
 		sigaction(sigs[i], &sa, NULL);
 }
 
+static long
+now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* SIGCHLD stays blocked in the runner and is collected synchronously
+ * with sigtimedwait, so a test that ends early is noticed at once
+ * rather than on the next poll tick. */
+static sigset_t sigchld_set;
+
+static void
+block_sigchld(void)
+{
+	sigemptyset(&sigchld_set);
+	sigaddset(&sigchld_set, SIGCHLD);
+	signal(SIGCHLD, SIG_DFL);   /* SIG_IGN would auto-reap the child */
+	sigprocmask(SIG_BLOCK, &sigchld_set, NULL);
+}
+
 static int
 run_one(const test_case_t *t, double scale)
 {
 	double ms = (t->timeout_ms ? t->timeout_ms : DEFAULT_TIMEOUT_MS) * scale;
-	/* at least one poll interval; capped so the wait loop cannot overflow */
-	int timeout = ms < 10 ? 10 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
+	/* capped so the deadline arithmetic cannot overflow */
+	int timeout = ms < 1 ? 1 : ms > INT_MAX / 2 ? INT_MAX / 2 : (int)ms;
 
 	if (SANITIZED && (t->flags & TEST_SKIP_SANITIZE))
 		return TEST_SKIP;
@@ -134,6 +157,7 @@ run_one(const test_case_t *t, double scale)
 	if (pid == 0) {
 		/* Child: run the test in its own process group */
 		setpgid(0, 0);
+		sigprocmask(SIG_UNBLOCK, &sigchld_set, NULL);
 		_exit(t->fn());
 	}
 	setpgid(pid, pid);   /* both sides, so neither order can race */
@@ -142,11 +166,11 @@ run_one(const test_case_t *t, double scale)
 	/* Parent: wait with timeout. WNOWAIT leaves the child a zombie, so
 	 * its pid, and with it the group id, cannot be reused before the
 	 * group is killed. */
-	int waited = 0;
+	long deadline = now_ms() + timeout;
 	int status = 0;
 	int exited = 0;
 
-	while (waited < timeout) {
+	for (;;) {
 		siginfo_t si;
 		si.si_pid = 0;
 		if (waitid(P_PID, (id_t)pid, &si,
@@ -154,8 +178,13 @@ run_one(const test_case_t *t, double scale)
 			exited = 1;
 			break;
 		}
-		usleep(10 * 1000);
-		waited += 10;
+		long left = deadline - now_ms();
+		if (left <= 0)
+			break;
+		struct timespec ts = { left / 1000, (left % 1000) * 1000000 };
+		/* SIGCHLD, the timeout or EINTR: re-check in every case
+		 * (a SIGCHLD left pending by an earlier test is harmless) */
+		sigtimedwait(&sigchld_set, NULL, &ts);
 	}
 
 	kill(-pid, SIGKILL);   /* the test and anything it left behind */
@@ -177,15 +206,6 @@ run_one(const test_case_t *t, double scale)
 	fprintf(stderr, "\n  child killed by signal %d "
 		"(crash / abort)\n", WTERMSIG(status));
 	return TEST_FAILURE;
-}
-
-static long
-now_ms(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 static int
@@ -220,6 +240,7 @@ run_selected(const test_case_t *tests, int n,
 		repeat = 1;
 	double scale = timeout_scale();
 	install_signal_handlers();
+	block_sigchld();
 
 	for (int i = 0; i < n; ++i) {
 		const test_case_t *t = &tests[i];
