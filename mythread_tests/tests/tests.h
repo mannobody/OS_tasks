@@ -41,6 +41,7 @@ int test_exit_join_blocks(void);
 int test_exit_immediate(void);
 int test_exit_nested(void);
 int test_exit_from_main(void);    /* never returns: exits the process */
+int test_exit_from_thread(void);  /* never returns: exits the process */
 
 /* stress */
 int test_stress_many_threads(void);

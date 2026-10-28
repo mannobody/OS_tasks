@@ -139,7 +139,7 @@ Two tips:
 1. **Fork-per-test runner (framework/runner.c)**
 Each test runs in a child process created with fork(). The parent waits with a timeout (default 5000 ms, per-test override via timeout_ms). If the child doesn't exit in time it is killed with SIGKILL and reported as **TIMEOUT**. Crashes (segfaults, aborts) are reported as **FAIL** with the signal number.
 Each entry in main.c also carries `flags`:
-   - `TEST_EXITS_PROCESS` — the test ends the whole process itself (`mythread_exit` or exit from main); only for such tests is exit code 42 a pass, anywhere else it is a failure like any other code.
+   - `TEST_EXITS_PROCESS` — the test ends the whole process itself (`mythread_exit` from main, or `exit()` from any thread — `exit_from_thread` checks that it takes the whole thread group down); only for such tests is exit code 42 a pass, anywhere else it is a failure like any other code.
    - `TEST_SKIP_SANITIZE` / `TEST_SKIP_VALGRIND` — the test measures something the tool distorts (RSS, the task count, process exit with a helper thread alive) or cannot finish under it; in a TSan/ASan build, or when run under valgrind, it is reported as **SKIP** instead of being run. SKIP is counted separately and does not fail the run.
 
 2. **Negative tests and strict mode (tests/test_errors.c and others)**
