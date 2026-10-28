@@ -19,7 +19,6 @@ int test_error_null_routine(void) {
 	int rc = mythread_create(&t, NULL, NULL, NULL);
 #ifdef MYTHREAD_STRICT_ERRORS
 	ASSERT_FAILURE(rc);
-	(void)mythread_join(t, NULL);
 #else
 	(void)rc;
 	(void)t;

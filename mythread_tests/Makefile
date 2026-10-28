@@ -60,6 +60,10 @@ override CFLAGS += -Iinclude -I$(IMPL_DIR) -Iframework -Itests
 # definition fails to compile with "conflicting types for 'mythread_...'".
 override CFLAGS += -include include/mythread.h
 
+ifeq ($(strip $(STRICT)),1)
+  override CFLAGS += -DMYTHREAD_STRICT_ERRORS
+endif
+
 ifneq ($(strip $(IMPL_INC)),)
   override CFLAGS += $(addprefix -I,$(filter $(IMPL_DIR)/%,$(IMPL_INC)))
 endif
@@ -110,6 +114,15 @@ check-custom:
 	$(MAKE) IMPL=custom mythread_tests
 	./mythread_tests
 
+# Same suite built with -DMYTHREAD_STRICT_ERRORS: invalid, stale and
+# detached handles must be rejected with an explicit error code. Use it
+# to grade implementations that validate their handles; the pthread
+# reference does not, so some tests are expected to fail there.
+check-strict:
+	$(MAKE) clean
+	$(MAKE) STRICT=1 mythread_tests
+	./mythread_tests
+
 # [S11] Same suite under sanitizers. TSan is the interesting one for a
 # thread library: it proves the tests synchronize through real atomics
 # (no data races in the tests themselves) and surfaces races inside the
@@ -137,4 +150,4 @@ clean:
 	rm -rf build
 	rm -f mythread_tests
 
-.PHONY: check-reference check-custom sanitize sanitize-mem valgrind clean FORCE
+.PHONY: check-reference check-custom check-strict sanitize sanitize-mem valgrind clean FORCE
