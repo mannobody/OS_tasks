@@ -84,10 +84,11 @@ test_detach_after_exit(void)
 
 /*
  * [D3] Double detach. The first call succeeds; a second one on the same
- * handle is continuing an already-finished story. POSIX says EINVAL,
- * so by default we require only: no crash, no hang (the runner would
- * catch either). With -DMYTHREAD_STRICT_ERRORS the second call must
- * return an explicit error code.
+ * handle is continuing an already-finished story. POSIX leaves it
+ * undefined, and glibc may already have freed the descriptor of the
+ * detached thread, so — like join_dead — weak mode does not even make
+ * the second call. With -DMYTHREAD_STRICT_ERRORS it must return an
+ * explicit error code.
  */
 int
 test_detach_double(void)
@@ -97,19 +98,17 @@ test_detach_double(void)
 	ASSERT_SUCCESS(mythread_create(&t, NULL, worker_noop, NULL));
 	ASSERT_SUCCESS(mythread_detach(t));
 
-	(void)mythread_detach(t);
 #ifdef MYTHREAD_STRICT_ERRORS
-	int rc = mythread_detach(t);	/* re-checked under strict flag */
-	ASSERT_FAILURE(rc);
+	ASSERT_FAILURE(mythread_detach(t));
 #endif
-
 	return TEST_SUCCESS;
 }
 
 /*
- * [D4] Detach after join. POSIX says EINVAL or ESRCH; a handle whose
- * thread was already joined is no longer valid. Same policy as above:
- * any result tolerated by default, explicit error in strict mode.
+ * [D4] Detach after join. A handle whose thread was already joined is
+ * no longer valid; using it is undefined (glibc freed the descriptor at
+ * join). Same policy as above: the call is made only in strict mode,
+ * where it must return an explicit error.
  */
 int
 test_detach_after_join(void)
@@ -119,10 +118,8 @@ test_detach_after_join(void)
 	ASSERT_SUCCESS(mythread_create(&t, NULL, worker_noop, NULL));
 	ASSERT_SUCCESS(mythread_join(t, NULL));
 
-	(void)mythread_detach(t);
 #ifdef MYTHREAD_STRICT_ERRORS
-	int rc = mythread_detach(t);	/* re-checked under strict flag */
-	ASSERT_FAILURE(rc);
+	ASSERT_FAILURE(mythread_detach(t));
 #endif
 	return TEST_SUCCESS;
 }
