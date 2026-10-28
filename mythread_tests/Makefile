@@ -151,9 +151,12 @@ sanitize-mem:
 	./mythread_tests
 
 # Valgrind memcheck over the suite the normal way: slow but thorough.
-# The per-test runner timeout still applies — that is [S12] in action.
+# The per-test runner timeout still applies — that is [S12] in action
+# (stretch it with MYTHREAD_TIMEOUT_SCALE). Valgrind runs one thread at
+# a time, and its default scheduler lets a spinning thread starve the
+# rest; the tests wait by spinning, so fair scheduling is required.
 valgrind: mythread_tests
-	valgrind --error-exitcode=99 ./mythread_tests
+	valgrind --fair-sched=yes --error-exitcode=99 ./mythread_tests
 
 clean:
 	rm -rf build
