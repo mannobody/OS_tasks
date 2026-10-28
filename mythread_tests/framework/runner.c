@@ -89,7 +89,10 @@ run_all(const test_case_t *tests, int n)
 		int rc = TEST_SUCCESS;
 		for (int rep = 0; rep < repeat && rc == TEST_SUCCESS; ++rep) {
 			int one = run_one(t);
-			if (one != TEST_SUCCESS) {
+			if (one == TEST_SKIP) {
+				/* does not apply: no point repeating it */
+				rc = one;
+			} else if (one != TEST_SUCCESS) {
 				if (repeat > 1)
 					fprintf(stderr,
 					    "\n  (failed on repetition "
@@ -101,6 +104,9 @@ run_all(const test_case_t *tests, int n)
 		if (rc == TEST_SUCCESS) {
 			printf(COLOR_GREEN "OK" COLOR_RESET "\n");
 			passed++;
+		} else if (rc == TEST_SKIP) {
+			printf(COLOR_YELLOW "SKIP" COLOR_RESET "\n");
+			skipped++;
 		} else if (rc == TEST_TIMEOUT) {
 			printf(COLOR_RED "TIMEOUT" COLOR_RESET "\n");
 			failed++;

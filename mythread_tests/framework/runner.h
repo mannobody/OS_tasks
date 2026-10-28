@@ -17,6 +17,8 @@ typedef struct {
 #define TEST_SUCCESS  0
 #define TEST_FAILURE  1
 #define TEST_TIMEOUT  2   /* set by the runner, not by tests */
+#define TEST_SKIP     3   /* the test does not apply in this build or
+                           * environment; counted as skipped, not failed */
 
 /* Special-case marker for tests that terminate the process themselves
  * (e.g. mythread_exit from main): the runner treats exit code 42 as
