@@ -70,9 +70,9 @@ worker_fill_pattern(void *arg)
 static void *
 worker_sleepy(void *arg)
 {
-	volatile int *go = (volatile int *)arg;
+	int *go = (int *)arg;
 
-	while (!*go)
+	while (!__atomic_load_n(go, __ATOMIC_SEQ_CST))
 		;
 
 	return NULL;
@@ -172,21 +172,23 @@ int
 test_create_until_failure(void)
 {
 #define MAXT 256
-	static volatile int go = 0;
+	static int go;
 	static mythread_t t[MAXT];
 	int created = 0;
+
+	go = 0;
 
 	/* The reference library has no artificial cap; 256 live threads is
 	 * well within any ulimit. Students' pools (1.7) may fail earlier —
 	 * that is fine, the contract being tested is graceful failure. */
 	while (created < MAXT &&
-	       mythread_create(&t[created], NULL, worker_sleepy, (void *)&go) == 0)
+	       mythread_create(&t[created], NULL, worker_sleepy, &go) == 0)
 		++created;
 
 	ASSERT_TRUE(created > 0);	/* creating must work in the first place */
 
 	/* every handle so far must be joinable and return success */
-	go = 1;
+	__atomic_store_n(&go, 1, __ATOMIC_SEQ_CST);
 	for (int i = 0; i < created; ++i)
 		ASSERT_SUCCESS(mythread_join(t[i], NULL));
 

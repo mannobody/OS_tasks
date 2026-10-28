@@ -187,7 +187,6 @@ test_race_producer_consumer(void)
 #define R6_ROUNDS 100
 struct r6_slot {
 	mythread_t target;
-	volatile int done;
 	int rc;
 	intptr_t val;
 };
@@ -208,7 +207,6 @@ worker_r6_joiner(void *arg)
 	void *ret = NULL;
 	r->rc = mythread_join(r->target, &ret);
 	r->val = (intptr_t)ret;
-	__atomic_store_n(&r->done, 1, __ATOMIC_SEQ_CST);
 	return NULL;
 }
 
@@ -219,7 +217,6 @@ test_race_exit_join(void)
 	static mythread_t joiner;
 
 	for (int round = 0; round < R6_ROUNDS; ++round) {
-		r.done = 0;
 		r.rc = -1;
 		r.val = 0;
 
@@ -230,9 +227,7 @@ test_race_exit_join(void)
 		ASSERT_SUCCESS(mythread_create(&joiner, NULL,
 		                               worker_r6_joiner, &r));
 
-		while (!__atomic_load_n(&r.done, __ATOMIC_SEQ_CST))
-			;
-
+		ASSERT_SUCCESS(mythread_join(joiner, NULL));
 		ASSERT_EQ(r.rc, 0);
 		ASSERT_EQ(r.val, (intptr_t)0x6);
 	}
@@ -274,16 +269,16 @@ test_race_exit_detach(void)
 }
 
 /*
- * [R8] Parallel joins of N different threads. All joiner threads
- * enter join() while every target is still parked — so all N joins
- * are blocked at once — then the gates open and each joiner must
+ * [R8] Parallel joins of N different threads. All joiner threads are
+ * started while every target is still parked, so their joins overlap
+ * (most likely all N block at once, though a flag set right before
+ * the call cannot prove it); then the gates open and each joiner must
  * collect exactly its own target's value. Verifies that the library
  * supports many simultaneous joiners without cross-talk.
  */
 #define R8_N 6
 struct r8_joiner {
-	volatile int entered;
-	volatile int done;
+	int entered;
 	int rc;
 	intptr_t val;
 	mythread_t target;
@@ -298,7 +293,6 @@ worker_r8_joiner(void *arg)
 	void *ret = NULL;
 	j->rc = mythread_join(j->target, &ret);
 	j->val = (intptr_t)ret;
-	__atomic_store_n(&j->done, 1, __ATOMIC_SEQ_CST);
 	return NULL;
 }
 
@@ -319,7 +313,6 @@ test_race_parallel_joins(void)
 	}
 	for (int i = 0; i < R8_N; ++i) {
 		jr[i].entered = 0;
-		jr[i].done = 0;
 		jr[i].rc = -1;
 		jr[i].val = 0;
 		jr[i].target = targ[i];
@@ -327,7 +320,7 @@ test_race_parallel_joins(void)
 		                               worker_r8_joiner, &jr[i]));
 	}
 
-	/* every joiner has entered join (targets parked → all blocked) */
+	/* every joiner is about to call join while its target is parked */
 	for (int i = 0; i < R8_N; ++i)
 		while (!__atomic_load_n(&jr[i].entered, __ATOMIC_SEQ_CST))
 			;
@@ -336,11 +329,8 @@ test_race_parallel_joins(void)
 	for (int i = 0; i < R8_N; ++i)
 		__atomic_store_n(&pr[i].g.open, 1, __ATOMIC_SEQ_CST);
 
-	for (int i = 0; i < R8_N; ++i)
-		while (!__atomic_load_n(&jr[i].done, __ATOMIC_SEQ_CST))
-			;
-
 	for (int i = 0; i < R8_N; ++i) {
+		ASSERT_SUCCESS(mythread_join(joiner[i], NULL));
 		ASSERT_EQ(jr[i].rc, 0);
 		ASSERT_EQ(jr[i].val, vals[i]);
 	}
@@ -425,8 +415,7 @@ test_race_nested_create_join(void)
  */
 struct r12_ctx {
 	mythread_t b;
-	volatile int rc_det;
-	volatile int done;
+	int rc_det;
 	struct park_ret *pb;
 };
 
@@ -435,9 +424,7 @@ worker_r12_detacher(void *arg)
 {
 	struct r12_ctx *c = (struct r12_ctx *)arg;
 
-	__atomic_store_n(&c->rc_det, mythread_detach(c->b),
-	                 __ATOMIC_SEQ_CST);
-	__atomic_store_n(&c->done, 1, __ATOMIC_SEQ_CST);
+	c->rc_det = mythread_detach(c->b);
 	return NULL;
 }
 
@@ -452,7 +439,6 @@ test_race_cross_detach(void)
 	pb.val = (intptr_t)0xB2;
 
 	c.rc_det = -1;
-	c.done = 0;
 	c.pb = &pb;
 	c.b = 0;
 
@@ -461,8 +447,7 @@ test_race_cross_detach(void)
 	ASSERT_SUCCESS(mythread_create(&a, NULL, worker_r12_detacher,
 	                               &c));
 
-	while (!__atomic_load_n(&c.done, __ATOMIC_SEQ_CST))
-		;
+	ASSERT_SUCCESS(mythread_join(a, NULL));
 	/* cross-thread detach of a live thread is well-defined: 0 */
 	ASSERT_EQ(c.rc_det, 0);
 

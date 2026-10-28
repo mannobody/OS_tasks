@@ -58,7 +58,7 @@ int test_error_join_self(void) {
 	struct self_arg a = { .self = 0 };
 	mythread_t t;
 	ASSERT_SUCCESS(mythread_create(&t, NULL, worker_self_join, &a));
-	a.self = t;
+	__atomic_store_n(&a.self, t, __ATOMIC_SEQ_CST);
 	ASSERT_SUCCESS(mythread_join(t, NULL));
 	return TEST_SUCCESS;
 }
