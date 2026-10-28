@@ -254,16 +254,18 @@ test_join_dead(void)
 }
 
 /*
- * [J9] Concurrent joins on the same target. POSIX declares it UB;
- * the observable minimum: at least one joiner gets the correct value,
- * every joiner that reports success gets the *same correct* value,
- * nobody crashes the process, and the library stays usable. A broken
- * implementation that leaves all joiners waiting forever fails by
- * deadline (3s) before the runner's 5s timeout even fires.
+ * [J9] Concurrent joins on the same target. POSIX declares it UB, and
+ * on glibc it really is (losers may "succeed" without a retval, TSan
+ * aborts), so the test runs only in strict mode. There the library
+ * must serialize duplicate joins: at least one joiner gets the correct
+ * value, every joiner that reports success gets the *same correct*
+ * value, and every joiner returns — a loser left waiting forever hangs
+ * the final joins and trips the runner timeout.
  */
+#ifdef MYTHREAD_STRICT_ERRORS
 #define JOINERS 4
 struct jslot {
-	volatile int done;
+	int done;
 	int rc;
 	intptr_t val;
 };
@@ -296,10 +298,12 @@ worker_joiner(void *arg)
 	__atomic_store_n(&r->slot[i].done, 1, __ATOMIC_SEQ_CST);
 	return NULL;
 }
+#endif
 
 int
 test_join_concurrent(void)
 {
+#ifdef MYTHREAD_STRICT_ERRORS
 	static struct jrace r;
 	r.target = 0;
 	r.next = 0;
@@ -335,30 +339,15 @@ test_join_concurrent(void)
 
 	ASSERT_TRUE(successes >= 1);   /* someone must have got the value */
 
-	usleep(50 * 1000);   /* settle: let any fast losers report too */
-#ifdef MYTHREAD_STRICT_ERRORS
-	/* Strict: every joiner that claims success must carry the correct
-	 * value (the library serializes duplicate joins properly). */
+	/* every joiner must come back, with a value or with an error */
 	for (int i = 0; i < JOINERS; ++i)
-		if (__atomic_load_n(&r.slot[i].done, __ATOMIC_SEQ_CST) &&
-		    r.slot[i].rc == 0)
-			ASSERT_EQ(r.slot[i].val, (intptr_t)0x1234);
-#else
-	/* Weak mode: concurrent join of one thread is POSIX UB, and real
-	 * pthreads may report success to a losing joiner without writing
-	 * its retval. The only portable claim: with >=1 success, the
-	 * process did not crash and the correct value appeared at least
-	 * once across all reporting joiners. */
-	int with_value = 0;
-	for (int i = 0; i < JOINERS; ++i)
-		if (__atomic_load_n(&r.slot[i].done, __ATOMIC_SEQ_CST) &&
-		    r.slot[i].rc == 0 &&
-		    r.slot[i].val == (intptr_t)0x1234)
-			with_value = 1;
-	ASSERT_TRUE(with_value);
-#endif
+		ASSERT_SUCCESS(mythread_join(joiners[i], NULL));
 
+	for (int i = 0; i < JOINERS; ++i)
+		if (r.slot[i].rc == 0)
+			ASSERT_EQ(r.slot[i].val, (intptr_t)0x1234);
 #undef JOINERS
+#endif
 	return TEST_SUCCESS;
 }
 
