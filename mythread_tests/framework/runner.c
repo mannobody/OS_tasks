@@ -90,6 +90,9 @@ timeout_scale(void)
  * the group no longer gets the terminal's Ctrl-C.
  */
 static volatile sig_atomic_t running_group;
+/* Held blocked from fork() until running_group names the new child,
+ * so a ^C in between cannot leave that child running. */
+static sigset_t fatal_set;
 
 static void
 on_fatal_signal(int sig)
@@ -109,8 +112,11 @@ install_signal_handlers(void)
 	memset(&sa, 0, sizeof sa);
 	sa.sa_handler = on_fatal_signal;
 	sigemptyset(&sa.sa_mask);
-	for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; ++i)
+	sigemptyset(&fatal_set);
+	for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; ++i) {
 		sigaction(sigs[i], &sa, NULL);
+		sigaddset(&fatal_set, sigs[i]);
+	}
 }
 
 static long
@@ -148,20 +154,28 @@ run_one(const test_case_t *t, double scale)
 	if ((t->flags & TEST_SKIP_VALGRIND) && under_valgrind())
 		return TEST_SKIP;
 
+	sigset_t saved;
+	sigprocmask(SIG_BLOCK, &fatal_set, &saved);
+
 	pid_t pid = fork();
 	if (pid < 0) {
 		perror("fork");
+		sigprocmask(SIG_SETMASK, &saved, NULL);
 		return TEST_FAILURE;
 	}
 
 	if (pid == 0) {
-		/* Child: run the test in its own process group */
+		/* Child: run the test in its own process group, with no
+		 * signal blocked */
+		sigset_t none;
+		sigemptyset(&none);
 		setpgid(0, 0);
-		sigprocmask(SIG_UNBLOCK, &sigchld_set, NULL);
+		sigprocmask(SIG_SETMASK, &none, NULL);
 		_exit(t->fn());
 	}
 	setpgid(pid, pid);   /* both sides, so neither order can race */
 	running_group = pid;
+	sigprocmask(SIG_SETMASK, &saved, NULL);
 
 	/* Parent: wait with timeout. WNOWAIT leaves the child a zombie, so
 	 * its pid, and with it the group id, cannot be reused before the
